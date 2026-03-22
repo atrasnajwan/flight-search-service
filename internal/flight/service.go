@@ -19,7 +19,7 @@ func NewService(providers []domain.Provider) *FlightService {
 
 func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRequest) ([]domain.Flight, Metadata) {
 	start := time.Now()
-    // TODO: implement cache
+	// TODO: implement cache
 	cacheHit := false
 	var providerSucceeded int
 	var providerFailed int
@@ -54,21 +54,21 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 			}
 		case <-ctx.Done():
 			flights := s.sortResults(allFlights, req)
-            meta := Metadata{
-                TotalResults:      len(flights),
-                ProviderQueried:   len(s.providers),
-                ProviderSucceeded: providerSucceeded,
-                ProviderFailed:    providerFailed,
-                SearchTime:        getSearchDuration(start),
-                CacheHit:          cacheHit,
-            }
+			meta := Metadata{
+				TotalResults:      len(flights),
+				ProviderQueried:   len(s.providers),
+				ProviderSucceeded: providerSucceeded,
+				ProviderFailed:    providerFailed,
+				SearchTime:        getSearchDuration(start),
+				CacheHit:          cacheHit,
+			}
 
-            return flights, meta
+			return flights, meta
 		}
 	}
 
 	flights := s.sortResults(allFlights, req)
-	
+
 	meta := Metadata{
 		TotalResults:      len(flights),
 		ProviderQueried:   len(s.providers),
@@ -133,6 +133,6 @@ func (s *FlightService) sortResults(flights []domain.Flight, req domain.SearchRe
 }
 
 func getSearchDuration(start time.Time) int {
-    elapsed := time.Since(start)
-    return int(elapsed.Milliseconds())
+	elapsed := time.Since(start)
+	return int(elapsed.Milliseconds())
 }

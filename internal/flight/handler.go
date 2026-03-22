@@ -4,6 +4,8 @@ import (
 	"flight-search-service/internal/domain"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -103,15 +105,68 @@ func (h *FlightHandler) Search(c *gin.Context) {
 		sortOrder = q
 	}
 
+	// Get filter params from URL query
+	var priceMin, priceMax float64
+	var maxStops int
+	var durationMin, durationMax int
+	var airlines []string
+	var departureTimeMin, departureTimeMax, arrivalTimeMin, arrivalTimeMax string
+
+	if q := c.Query("priceMin"); q != "" {
+		if v, err := strconv.ParseFloat(q, 64); err == nil {
+			priceMin = v
+		}
+	}
+	if q := c.Query("priceMax"); q != "" {
+		if v, err := strconv.ParseFloat(q, 64); err == nil {
+			priceMax = v
+		}
+	}
+	if q := c.Query("maxStops"); q != "" {
+		if v, err := strconv.Atoi(q); err == nil {
+			maxStops = v
+		}
+	}
+	if q := c.Query("durationMin"); q != "" {
+		if v, err := strconv.Atoi(q); err == nil {
+			durationMin = v
+		}
+	}
+	if q := c.Query("durationMax"); q != "" {
+		if v, err := strconv.Atoi(q); err == nil {
+			durationMax = v
+		}
+	}
+	if q := c.Query("airlines"); q != "" {
+		airlines = strings.Split(q, ",")
+		for i, a := range airlines {
+			airlines[i] = strings.TrimSpace(a)
+		}
+	}
+	departureTimeMin = c.Query("departureTimeMin")
+	departureTimeMax = c.Query("departureTimeMax")
+	arrivalTimeMin = c.Query("arrivalTimeMin")
+	arrivalTimeMax = c.Query("arrivalTimeMax")
+
 	domReq := domain.SearchRequest{
-		Origin:        req.Origin,
-		Destination:   req.Destination,
-		DepartureDate: depDate,
-		ReturnDate:    retDate,
-		Passengers:    req.Passengers,
-		CabinClass:    req.CabinClass,
-		SortBy:        sortBy,
-		SortOrder:     sortOrder,
+		Origin:           req.Origin,
+		Destination:      req.Destination,
+		DepartureDate:    depDate,
+		ReturnDate:       retDate,
+		Passengers:       req.Passengers,
+		CabinClass:       req.CabinClass,
+		SortBy:           sortBy,
+		SortOrder:        sortOrder,
+		PriceMin:         priceMin,
+		PriceMax:         priceMax,
+		MaxStops:         maxStops,
+		DepartureTimeMin: departureTimeMin,
+		DepartureTimeMax: departureTimeMax,
+		ArrivalTimeMin:   arrivalTimeMin,
+		ArrivalTimeMax:   arrivalTimeMax,
+		Airlines:         airlines,
+		DurationMin:      durationMin,
+		DurationMax:      durationMax,
 	}
 
 	flights, meta := h.service.AggregateSearch(c.Request.Context(), domReq)
