@@ -5,6 +5,7 @@ import (
 	"flight-search-service/internal/domain"
 	"log"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -52,7 +53,7 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 				allFlights = append(allFlights, flights...)
 			}
 		case <-ctx.Done():
-			flights := s.sortResults(allFlights)
+			flights := s.sortResults(allFlights, req)
             meta := Metadata{
                 TotalResults:      len(flights),
                 ProviderQueried:   len(s.providers),
@@ -66,7 +67,7 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 		}
 	}
 
-	flights := s.sortResults(allFlights)
+	flights := s.sortResults(allFlights, req)
 	
 	meta := Metadata{
 		TotalResults:      len(flights),
@@ -80,14 +81,53 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 	return flights, meta
 }
 
-func (s *FlightService) sortResults(flights []domain.Flight) []domain.Flight {
+func (s *FlightService) sortResults(flights []domain.Flight, req domain.SearchRequest) []domain.Flight {
 	if len(flights) <= 0 {
 		return []domain.Flight{}
 	}
-	// sort by price ASC
-	sort.Slice(flights, func(a, b int) bool {
-		return flights[a].Price.Amount < flights[b].Price.Amount
-	})
+
+	order := strings.ToLower(req.SortOrder)
+	if order != "asc" && order != "desc" {
+		order = "asc"
+	}
+
+	switch strings.ToLower(req.SortBy) {
+	case "price":
+		sort.Slice(flights, func(a, b int) bool {
+			if order == "desc" {
+				return flights[a].Price.Amount > flights[b].Price.Amount
+			}
+			return flights[a].Price.Amount < flights[b].Price.Amount
+		})
+	case "duration":
+		sort.Slice(flights, func(a, b int) bool {
+			if order == "desc" {
+				return flights[a].Duration.TotalMinutes > flights[b].Duration.TotalMinutes
+			}
+			return flights[a].Duration.TotalMinutes < flights[b].Duration.TotalMinutes
+		})
+	case "departure":
+		sort.Slice(flights, func(a, b int) bool {
+			if order == "desc" {
+				return flights[a].Departure.DateTime.After(flights[b].Departure.DateTime)
+			}
+			return flights[a].Departure.DateTime.Before(flights[b].Departure.DateTime)
+		})
+	case "arrival":
+		sort.Slice(flights, func(a, b int) bool {
+			if order == "desc" {
+				return flights[a].Arrival.DateTime.After(flights[b].Arrival.DateTime)
+			}
+			return flights[a].Arrival.DateTime.Before(flights[b].Arrival.DateTime)
+		})
+	default:
+		sort.Slice(flights, func(a, b int) bool {
+			if order == "desc" {
+				return flights[a].Price.Amount > flights[b].Price.Amount
+			}
+			return flights[a].Price.Amount < flights[b].Price.Amount
+		})
+	}
 
 	return flights
 }

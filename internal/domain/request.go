@@ -9,4 +9,6 @@ type SearchRequest struct {
     ReturnDate     time.Time `json:"returnDate"`     
     Passengers     int       `json:"passengers"`      
     CabinClass     string    `json:"cabinClass"`      
+    SortBy         string    `json:"sortBy,omitempty"`
+    SortOrder      string    `json:"sortOrder,omitempty"`
 }

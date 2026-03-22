@@ -46,8 +46,10 @@ type SearchRequestBody struct {
 	Destination   string `json:"destination" binding:"required"`
 	DepartureDate string `json:"departureDate" binding:"required"`
 	ReturnDate    string `json:"returnDate"`
-	Passengers    int    `json:"passengers"`
+	Passengers    int    `json:"passengers" binding:"required,min=1"`
 	CabinClass    string `json:"cabinClass"`
+	SortBy        string `json:"sortBy"`
+	SortOrder     string `json:"sortOrder"`
 }
 
 func (h *FlightHandler) Search(c *gin.Context) {
@@ -91,6 +93,16 @@ func (h *FlightHandler) Search(c *gin.Context) {
 		return
 	}
 
+	sortBy := req.SortBy
+	if q := c.Query("sortBy"); q != "" {
+		sortBy = q
+	}
+
+	sortOrder := req.SortOrder
+	if q := c.Query("sortOrder"); q != "" {
+		sortOrder = q
+	}
+
 	domReq := domain.SearchRequest{
 		Origin:        req.Origin,
 		Destination:   req.Destination,
@@ -98,6 +110,8 @@ func (h *FlightHandler) Search(c *gin.Context) {
 		ReturnDate:    retDate,
 		Passengers:    req.Passengers,
 		CabinClass:    req.CabinClass,
+		SortBy:        sortBy,
+		SortOrder:     sortOrder,
 	}
 
 	flights, meta := h.service.AggregateSearch(c.Request.Context(), domReq)
