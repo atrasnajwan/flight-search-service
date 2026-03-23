@@ -30,9 +30,10 @@ type SearchCriteria struct {
 }
 
 type ResultDTO struct {
-	Criteria SearchCriteria  `json:"search_criteria"`
-	Metadata Metadata        `json:"metadata"`
-	Flights  []domain.Flight `json:"flights"`
+	Criteria   SearchCriteria     `json:"search_criteria"`
+	Metadata   Metadata           `json:"metadata"`
+	Flights    []domain.Flight    `json:"flights"`
+	RoundTrips []domain.RoundTrip `json:"roundtrips"`
 }
 
 type SearchRequestBody struct {
@@ -82,7 +83,7 @@ func (h *FlightHandler) Search(c *gin.Context) {
 		return
 	}
 
-	if req.ReturnDate != "" && retDate.Before(depDate) {
+	if req.ReturnDate != "" && !retDate.After(depDate) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "return date must be after departure date"})
 		return
 	}
@@ -176,8 +177,9 @@ func (h *FlightHandler) Search(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, &ResultDTO{
-		Criteria: criteria,
-		Metadata: result.Meta,
-		Flights:  result.Flights,
+		Criteria:   criteria,
+		Metadata:   result.Meta,
+		Flights:    result.Flights,
+		RoundTrips: result.RoundTrips,
 	})
 }

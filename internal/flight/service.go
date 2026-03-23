@@ -46,9 +46,25 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 	// TODO: implement cache
 	cacheHit := false
 
-	flightResults, stats := s.fetchAll(ctx, req)
+	outboundResults, statsOut := s.fetchAll(ctx, req)
+	// One way
+	if req.ReturnDate.IsZero() {
+		return s.processOneWayResults(req, outboundResults, statsOut, start, cacheHit), nil
+	}
 
-	return s.processResults(req, flightResults, stats, start, cacheHit), nil
+	// Round trip
+	inboundReq := domain.SearchRequest{
+		Origin:        req.Destination,
+		Destination:   req.Origin,
+		DepartureDate: req.ReturnDate, // return date became departure date
+		Passengers:    req.Passengers,
+	}
+	inboundResults, statsOut := s.fetchAll(ctx, inboundReq)
+
+	// Pair outbound and inboud
+	pairs := s.pairRoundTrips(outboundResults, inboundResults)
+
+	return s.processRoundTripResults(req, pairs, statsOut, start, cacheHit), nil
 }
 
 func (s *FlightService) fetchAll(ctx context.Context, req domain.SearchRequest) ([]domain.Flight, *providerStats) {
@@ -100,7 +116,7 @@ func (s *FlightService) buildMeta(count int, stats *providerStats, start time.Ti
 	}
 }
 
-func (s *FlightService) processResults(
+func (s *FlightService) processOneWayResults(
 	req domain.SearchRequest,
 	allFlights []domain.Flight,
 	stats *providerStats,
@@ -114,6 +130,41 @@ func (s *FlightService) processResults(
 		Flights: flights,
 		Meta:    s.buildMeta(len(flights), stats, startTime, cacheHit),
 	}
+}
+
+func (s *FlightService) processRoundTripResults(
+	req domain.SearchRequest,
+	roundTrips []domain.RoundTrip,
+	stats *providerStats,
+	startTime time.Time,
+	cacheHit bool,
+) SearchResponse {
+	s.applyRoundTripScoring(roundTrips)
+	trips := s.sortRoundTripResults(roundTrips, req)
+
+	return SearchResponse{
+		RoundTrips: trips,
+		Meta:       s.buildMeta(len(trips), stats, startTime, cacheHit),
+	}
+}
+
+func (s *FlightService) pairRoundTrips(out, in []domain.Flight) []domain.RoundTrip {
+	if len(out) == 0 || len(in) == 0 {
+		return []domain.RoundTrip{}
+	}
+
+	var pairs []domain.RoundTrip
+	for _, o := range out {
+		for _, i := range in {
+			pairs = append(pairs, domain.RoundTrip{
+				Outbound:             o,
+				Inbound:              i,
+				TotalPrice:           o.Price.Amount + i.Price.Amount,
+				TotalDurationMinutes: o.Duration.TotalMinutes + i.Duration.TotalMinutes,
+			})
+		}
+	}
+	return pairs
 }
 
 func (s *FlightService) sortResults(flights []domain.Flight, req domain.SearchRequest) []domain.Flight {
@@ -168,6 +219,44 @@ func (s *FlightService) sortResults(flights []domain.Flight, req domain.SearchRe
 	return flights
 }
 
+func (s *FlightService) sortRoundTripResults(roudtrips []domain.RoundTrip, req domain.SearchRequest) []domain.RoundTrip {
+	if len(roudtrips) <= 0 {
+		return []domain.RoundTrip{}
+	}
+
+	order := strings.ToLower(req.SortOrder)
+	if order != "asc" && order != "desc" {
+		order = "asc"
+	}
+
+	switch strings.ToLower(req.SortBy) {
+	case "price":
+		sort.Slice(roudtrips, func(a, b int) bool {
+			if order == "desc" {
+				return roudtrips[a].TotalPrice > roudtrips[b].TotalPrice
+			}
+			return roudtrips[a].TotalPrice < roudtrips[b].TotalPrice
+		})
+	case "duration":
+		sort.Slice(roudtrips, func(a, b int) bool {
+			if order == "desc" {
+				return roudtrips[a].TotalDurationMinutes > roudtrips[b].TotalDurationMinutes
+			}
+			return roudtrips[a].TotalDurationMinutes < roudtrips[b].TotalDurationMinutes
+		})
+	default:
+		// sort by scoring
+		sort.Slice(roudtrips, func(a, b int) bool {
+			if order == "desc" {
+				return roudtrips[a].CombinedScore > roudtrips[b].CombinedScore
+			}
+			return roudtrips[a].CombinedScore < roudtrips[b].CombinedScore
+		})
+	}
+
+	return roudtrips
+}
+
 func (s *FlightService) getGlobalMaxMin(flights []domain.Flight) (minP, maxP float64, minD, maxD int) {
 	minP, minD = math.MaxFloat64, math.MaxInt
 
@@ -188,6 +277,26 @@ func (s *FlightService) getGlobalMaxMin(flights []domain.Flight) (minP, maxP flo
 	return minP, maxP, minD, maxD
 }
 
+func (s *FlightService) getRoundGlobalMaxMin(roundTrips []domain.RoundTrip) (minP, maxP float64, minD, maxD int) {
+	minP, minD = math.MaxFloat64, math.MaxInt
+
+	for _, r := range roundTrips {
+		if r.TotalPrice < minP {
+			minP = r.TotalPrice
+		}
+		if r.TotalPrice > maxP {
+			maxP = r.TotalPrice
+		}
+		if r.TotalDurationMinutes < minD {
+			minD = r.TotalDurationMinutes
+		}
+		if r.TotalDurationMinutes > maxD {
+			maxD = r.TotalDurationMinutes
+		}
+	}
+	return minP, maxP, minD, maxD
+}
+
 func (s *FlightService) applyScoring(flights []domain.Flight) {
 	if len(flights) == 0 {
 		return
@@ -197,6 +306,18 @@ func (s *FlightService) applyScoring(flights []domain.Flight) {
 
 	for i := range flights {
 		flights[i].Score = service.CalculateBestValueScore(flights[i], minP, maxP, minD, maxD)
+	}
+}
+
+func (s *FlightService) applyRoundTripScoring(roundTrips []domain.RoundTrip) {
+	if len(roundTrips) == 0 {
+		return
+	}
+
+	minP, maxP, minD, maxD := s.getRoundGlobalMaxMin(roundTrips)
+
+	for i := range roundTrips {
+		roundTrips[i].CombinedScore = service.CalculateRoundTripBestValueScore(roundTrips[i], minP, maxP, minD, maxD)
 	}
 }
 

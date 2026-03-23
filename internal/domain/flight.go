@@ -21,6 +21,14 @@ type Flight struct {
 	// Score          float64     `json:"score"`
 }
 
+type RoundTrip struct {
+	Outbound             Flight  `json:"outbound"`
+	Inbound              Flight  `json:"inbound"`
+	TotalPrice           float64 `json:"total_price"`
+	TotalDurationMinutes int     `json:"total_duration_minutes"`
+	CombinedScore        float64 `json:"combined_score"`
+}
+
 type Baggage struct {
 	CarryOn string `json:"carry_on"`
 	Checked string `json:"checked"`
