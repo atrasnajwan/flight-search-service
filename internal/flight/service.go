@@ -46,25 +46,46 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 	// TODO: implement cache
 	cacheHit := false
 
-	outboundResults, statsOut := s.fetchAll(ctx, req)
 	// One way
 	if req.ReturnDate.IsZero() {
+		outboundResults, statsOut := s.fetchAll(ctx, req)
 		return s.processOneWayResults(req, outboundResults, statsOut, start, cacheHit), nil
 	}
 
 	// Round trip
-	inboundReq := domain.SearchRequest{
-		Origin:        req.Destination,
-		Destination:   req.Origin,
-		DepartureDate: req.ReturnDate, // return date became departure date
-		Passengers:    req.Passengers,
-	}
-	inboundResults, statsOut := s.fetchAll(ctx, inboundReq)
+	var outboundResults, inboundResults []domain.Flight
+    var statsOut, statsIn *providerStats
+    
+    var wg sync.WaitGroup
+    wg.Add(2)
+
+	go func(){
+		defer wg.Done()
+		outboundResults, statsOut = s.fetchAll(ctx, req)
+	}()
+	
+	go func(){
+		defer wg.Done()
+		inboundReq := domain.SearchRequest{
+			Origin:        req.Destination,
+			Destination:   req.Origin,
+			DepartureDate: req.ReturnDate, // return date became departure date
+			Passengers:    req.Passengers,
+		}
+		inboundResults, statsIn = s.fetchAll(ctx, inboundReq)
+	}()
+	
+	wg.Wait()
 
 	// Pair outbound and inboud
 	pairs := s.pairRoundTrips(outboundResults, inboundResults)
 
-	return s.processRoundTripResults(req, pairs, statsOut, start, cacheHit), nil
+	combinedStats := &providerStats{
+        succeeded: statsOut.succeeded + statsIn.succeeded,
+        failed:    statsOut.failed + statsIn.failed,
+    }
+
+	return s.processRoundTripResults(req, pairs, combinedStats, start, cacheHit), nil
 }
 
 func (s *FlightService) fetchAll(ctx context.Context, req domain.SearchRequest) ([]domain.Flight, *providerStats) {
