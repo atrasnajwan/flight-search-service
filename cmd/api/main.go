@@ -81,6 +81,8 @@ func main() {
 
 	// /search
 	router.POST("/search", flightHandler.Search)
+	// /search/multi-city
+	router.POST("/search/multi-city", flightHandler.SearchMultiCity)
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%s", config.AppConfig.ServerPort),

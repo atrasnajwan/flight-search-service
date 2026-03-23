@@ -165,8 +165,8 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 	pairs := s.pairRoundTrips(outboundResults, inboundResults)
 
 	combinedStats := &providerStats{
-		succeeded: max(statsOut.succeeded, statsIn.succeeded),
-		failed:    max(statsOut.failed, statsIn.failed),
+		succeeded: statsOut.succeeded + statsIn.succeeded,
+		failed:    statsOut.failed + statsIn.failed,
 	}
 
 	response := s.processRoundTripResults(req, pairs, combinedStats, start, cacheHit)
@@ -221,7 +221,7 @@ func (s *FlightService) fetchAll(ctx context.Context, req domain.SearchRequest) 
 func (s *FlightService) buildMeta(count int, stats *providerStats, start time.Time, cacheHit bool) Metadata {
 	return Metadata{
 		TotalResults:      count,
-		ProviderQueried:   len(s.providers),
+		ProviderQueried:   int(stats.succeeded) + int(stats.failed),
 		ProviderSucceeded: int(stats.succeeded),
 		ProviderFailed:    int(stats.failed),
 		SearchTime:        getSearchDuration(start),
@@ -264,6 +264,16 @@ func (s *FlightService) processRoundTripResults(
 func (s *FlightService) pairRoundTrips(out, in []domain.Flight) []domain.RoundTrip {
 	if len(out) == 0 || len(in) == 0 {
 		return []domain.RoundTrip{}
+	}
+
+	// sort outbounds and inbounds and apply scoring
+	s.applyScoring(out)
+	if len(out) > 10 {
+		out = out[:10]
+	}
+	s.applyScoring(in)
+	if len(in) > 10 {
+		in = in[:10]
 	}
 
 	var pairs []domain.RoundTrip
@@ -437,4 +447,64 @@ func (s *FlightService) applyRoundTripScoring(roundTrips []domain.RoundTrip) {
 func getSearchDuration(start time.Time) int {
 	elapsed := time.Since(start)
 	return int(elapsed.Milliseconds())
+}
+
+func (s *FlightService) AggregateMultiCity(ctx context.Context, segments []domain.SearchRequest) ([]domain.MultiCityTrip, Metadata, error) {
+	start := time.Now()
+	combinedStats := &providerStats{}
+
+	results := make([][]domain.Flight, len(segments))
+	var wg sync.WaitGroup
+
+	for i, req := range segments {
+		wg.Add(1)
+		go func(idx int, r domain.SearchRequest) {
+			defer wg.Done()
+			flights, stats := s.fetchAll(ctx, r)
+			combinedStats.succeeded += stats.succeeded
+			combinedStats.failed += stats.failed
+
+			s.applyScoring(flights)
+			sort.Slice(flights, func(a, b int) bool { return flights[a].Score < flights[b].Score })
+			// only process top 10 flights
+			if len(flights) > 10 {
+				flights = flights[:10]
+			}
+			results[idx] = flights
+		}(i, req)
+	}
+	wg.Wait()
+
+	// build the chains
+	trips := make([]domain.MultiCityTrip, 0)
+	s.buildChains(results, 0, []domain.Flight{}, &trips)
+	meta := s.buildMeta(len(trips), combinedStats, start, false)
+
+	return trips, meta, nil
+}
+
+func (s *FlightService) buildChains(allSegments [][]domain.Flight, currentSeg int, path []domain.Flight, final *[]domain.MultiCityTrip) {
+	// if it's the last
+	if currentSeg == len(allSegments) {
+		trip := domain.MultiCityTrip{Segments: append([]domain.Flight{}, path...)}
+		for _, f := range trip.Segments {
+			trip.TotalPrice += f.Price.Amount
+			trip.TotalDurationMinutes += f.Duration.TotalMinutes
+			trip.CombinedScore += f.Score
+		}
+		*final = append(*final, trip)
+		return
+	}
+
+	for _, flight := range allSegments[currentSeg] {
+		if currentSeg > 0 {
+			prevArrival := path[currentSeg-1].Arrival.DateTime
+			// Add a 2-hour minimum buffer
+			if flight.Departure.DateTime.Before(prevArrival.Add(2 * time.Hour)) {
+				continue
+			}
+		}
+
+		s.buildChains(allSegments, currentSeg+1, append(path, flight), final)
+	}
 }

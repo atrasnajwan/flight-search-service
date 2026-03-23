@@ -17,8 +17,7 @@ type Flight struct {
 	Aircraft       *string     `json:"aircraft"`
 	Amenities      []Amenity   `json:"amenities"`
 	Baggage        Baggage     `json:"baggage"`
-	Score          float64
-	// Score          float64     `json:"score"`
+	Score          float64     `json:"score"`
 }
 
 type RoundTrip struct {
@@ -27,6 +26,13 @@ type RoundTrip struct {
 	TotalPrice           float64 `json:"total_price"`
 	TotalDurationMinutes int     `json:"total_duration_minutes"`
 	CombinedScore        float64 `json:"combined_score"`
+}
+
+type MultiCityTrip struct {
+	Segments             []Flight `json:"segments"`
+	TotalPrice           float64  `json:"total_price"`
+	TotalDurationMinutes int      `json:"total_duration_minutes"`
+	CombinedScore        float64  `json:"combined_score"`
 }
 
 type Baggage struct {

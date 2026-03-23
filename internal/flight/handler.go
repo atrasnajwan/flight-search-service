@@ -2,6 +2,7 @@ package flight
 
 import (
 	"flight-search-service/internal/domain"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -166,7 +167,7 @@ func (h *FlightHandler) Search(c *gin.Context) {
 	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		log.Printf("failed to parse body: %v", err)
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "failed to parse request body"})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -216,5 +217,85 @@ func (h *FlightHandler) Search(c *gin.Context) {
 		Metadata:   result.Meta,
 		Flights:    result.Flights,
 		RoundTrips: result.RoundTrips,
+	})
+}
+
+type MultiCitySegment struct {
+	Origin        string `json:"origin" binding:"required"`
+	Destination   string `json:"destination" binding:"required"`
+	DepartureDate string `json:"departureDate" binding:"required"`
+}
+
+type MultiCityRequestBody struct {
+	Segments   []MultiCitySegment `json:"segments" binding:"required,min=2"`
+	Passengers int                `json:"passengers" binding:"required,min=1"`
+	CabinClass string             `json:"cabinClass"`
+}
+
+type MultiCityResultDTO struct {
+	Metadata Metadata               `json:"metadata"`
+	Trips    []domain.MultiCityTrip `json:"trips"`
+}
+
+func (h *FlightHandler) SearchMultiCity(c *gin.Context) {
+	var body MultiCityRequestBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	filters := parseQueryFilters(c)
+	sortBy := ""
+	if q := c.Query("sortBy"); q != "" {
+		sortBy = q
+	}
+
+	sortOrder := ""
+	if q := c.Query("sortOrder"); q != "" {
+		sortOrder = q
+	}
+
+	var domainSegments []domain.SearchRequest
+	var lastSegment domain.SearchRequest
+
+	for i, seg := range body.Segments {
+		domReq, err := buildDomainRequest(
+			seg.Origin,
+			seg.Destination,
+			seg.DepartureDate,
+			nil, // No return date
+			body.Passengers,
+			body.CabinClass,
+			sortBy,
+			sortOrder,
+			filters,
+		)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("segment %d: %v", i+1, err)})
+			return
+		}
+
+		// check segment origin must be same as previous destination
+		if i > 0 && domReq.Origin != lastSegment.Destination {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("segment %d must depart from %s", i+1, lastSegment.Destination),
+			})
+			return
+		}
+
+		lastSegment = domReq
+		domainSegments = append(domainSegments, domReq)
+	}
+
+	results, meta, err := h.service.AggregateMultiCity(c.Request.Context(), domainSegments)
+	if err != nil {
+		log.Printf("multi-city search failed: %v", err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to process multi-city search"})
+		return
+	}
+
+	c.JSON(http.StatusOK, MultiCityResultDTO{
+		Metadata: meta,
+		Trips:    results,
 	})
 }
