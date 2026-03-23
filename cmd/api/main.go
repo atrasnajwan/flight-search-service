@@ -8,6 +8,7 @@ import (
 	"flight-search-service/internal/repository/airport"
 	"flight-search-service/internal/provider/batik"
 	"flight-search-service/internal/provider/garuda"
+	"flight-search-service/internal/provider/lion"
 	"fmt"
 	"log"
 	"net/http"
@@ -27,7 +28,6 @@ const ENV = "dev"
 func main() {
 	// init gin router
 	router := gin.New()
-	// router.Use(middleware.ErrorHandler())
 	router.Use(gin.Recovery()) // can recover from panics
 
 	router.Use(gin.LoggerWithConfig(gin.LoggerConfig{
@@ -57,6 +57,7 @@ func main() {
 		garuda.NewGarudaProvider("internal/provider/garuda/mock-response.json", 50, 100), // delay 50-100ms
 		airasia.NewAirAsiaProvider("internal/provider/airasia/mock-response.json", airportInstance, 50, 150, 90), // delay 50-150ms, 90% success rate
 		batik.NewBatikProvider("internal/provider/batik/mock-response.json", airportInstance, 200, 400),  // delay 200-400ms
+		lion.NewLionProvider("internal/provider/lion/mock-response.json", 100, 200),  // delay 100-200ms
 	}
 
 	flightService := flight.NewService(providers)
