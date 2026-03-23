@@ -33,16 +33,16 @@ type ResultDTO struct {
 	Criteria   SearchCriteria     `json:"search_criteria"`
 	Metadata   Metadata           `json:"metadata"`
 	Flights    []domain.Flight    `json:"flights"`
-	RoundTrips []domain.RoundTrip `json:"roundtrips"`
+	RoundTrips []domain.RoundTrip `json:"roundtrips,omitempty"`
 }
 
 type SearchRequestBody struct {
-	Origin        string `json:"origin" binding:"required"`
-	Destination   string `json:"destination" binding:"required"`
-	DepartureDate string `json:"departureDate" binding:"required"`
-	ReturnDate    string `json:"returnDate"`
-	Passengers    int    `json:"passengers" binding:"required,min=1"`
-	CabinClass    string `json:"cabinClass"`
+	Origin        string  `json:"origin" binding:"required"`
+	Destination   string  `json:"destination" binding:"required"`
+	DepartureDate string  `json:"departureDate" binding:"required"`
+	ReturnDate    *string `json:"returnDate"`
+	Passengers    int     `json:"passengers" binding:"required,min=1"`
+	CabinClass    string  `json:"cabinClass"`
 }
 
 type queryFilters struct {
@@ -55,6 +55,7 @@ type queryFilters struct {
 
 func parseQueryFilters(c *gin.Context) queryFilters {
 	var filters queryFilters
+	filters.maxStops = -1
 
 	if q := c.Query("priceMin"); q != "" {
 		if v, err := strconv.ParseFloat(q, 64); err == nil {
@@ -185,7 +186,7 @@ func (h *FlightHandler) Search(c *gin.Context) {
 		req.Origin,
 		req.Destination,
 		req.DepartureDate,
-		&returnDate,
+		req.ReturnDate,
 		req.Passengers,
 		req.CabinClass,
 		sortBy,

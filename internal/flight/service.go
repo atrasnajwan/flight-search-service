@@ -163,12 +163,12 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 
 	go func() {
 		defer wg.Done()
-		inboundReq := domain.SearchRequest{
-			Origin:        req.Destination,
-			Destination:   req.Origin,
-			DepartureDate: req.ReturnDate, // return date became departure date
-			Passengers:    req.Passengers,
-		}
+
+		inboundReq := req
+		inboundReq.Origin = req.Destination
+		inboundReq.Destination = req.Origin
+		inboundReq.DepartureDate = req.ReturnDate // return date became departure date
+		inboundReq.ReturnDate = time.Time{} // reset return date
 		inboundResults, statsIn = s.fetchAll(ctx, inboundReq)
 	}()
 
