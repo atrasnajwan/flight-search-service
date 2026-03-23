@@ -181,3 +181,23 @@ func IsMatchFilter(req *domain.SearchRequest, flight *domain.Flight) bool {
 	}
 	return true
 }
+
+func IsValidTrip(req domain.SearchRequest, trip domain.TripResult) bool {
+	totalPrice := trip.GetTotalPrice()
+	totalDuration := trip.GetTotalDuration()
+
+	if req.PriceMin > 0 && totalPrice < req.PriceMin {
+		return false
+	}
+	if req.PriceMax > 0 && totalPrice > req.PriceMax {
+		return false
+	}
+	if req.DurationMin > 0 && totalDuration < req.DurationMin {
+		return false
+	}
+	if req.DurationMax > 0 && totalDuration > req.DurationMax {
+		return false
+	}
+
+	return true
+}

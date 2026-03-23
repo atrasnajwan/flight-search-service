@@ -34,7 +34,7 @@ type ResultDTO struct {
 	Criteria   SearchCriteria     `json:"search_criteria"`
 	Metadata   Metadata           `json:"metadata"`
 	Flights    []domain.Flight    `json:"flights"`
-	RoundTrips []domain.RoundTrip `json:"roundtrips,omitempty"`
+	RoundTrips []domain.RoundTrip `json:"roundtrips"`
 }
 
 type SearchRequestBody struct {
@@ -130,6 +130,10 @@ func buildDomainRequest(
 		if !retDate.After(depDate) {
 			return domain.SearchRequest{}, errBadRequest{"return date must be after departure date"}
 		}
+
+		// round trip can't filter by arrival time
+		filters.arrivalTimeMin = ""
+		filters.arrivalTimeMax = ""
 	}
 
 	return domain.SearchRequest{
@@ -257,6 +261,12 @@ func (h *FlightHandler) SearchMultiCity(c *gin.Context) {
 
 	var domainSegments []domain.SearchRequest
 	var lastSegment domain.SearchRequest
+
+	// can't filter by arrival/departure time for now
+	filters.departureTimeMin = ""
+	filters.departureTimeMax = ""
+	filters.arrivalTimeMin = ""
+	filters.arrivalTimeMax = ""
 
 	for i, seg := range body.Segments {
 		domReq, err := buildDomainRequest(

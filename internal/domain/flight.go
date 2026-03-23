@@ -20,6 +20,11 @@ type Flight struct {
 	Score          float64     `json:"score"`
 }
 
+type TripResult interface {
+    GetTotalPrice() float64
+    GetTotalDuration() int
+}
+
 type RoundTrip struct {
 	Outbound             Flight  `json:"outbound"`
 	Inbound              Flight  `json:"inbound"`
@@ -27,6 +32,8 @@ type RoundTrip struct {
 	TotalDurationMinutes int     `json:"total_duration_minutes"`
 	CombinedScore        float64 `json:"combined_score"`
 }
+func (r RoundTrip) GetTotalPrice() float64 { return r.TotalPrice }
+func (r RoundTrip) GetTotalDuration() int  { return r.TotalDurationMinutes }
 
 type MultiCityTrip struct {
 	Segments             []Flight `json:"segments"`
@@ -34,6 +41,8 @@ type MultiCityTrip struct {
 	TotalDurationMinutes int      `json:"total_duration_minutes"`
 	CombinedScore        float64  `json:"combined_score"`
 }
+func (m MultiCityTrip) GetTotalPrice() float64 { return m.TotalPrice }
+func (m MultiCityTrip) GetTotalDuration() int  { return m.TotalDurationMinutes }
 
 type Baggage struct {
 	CarryOn string `json:"carry_on"`

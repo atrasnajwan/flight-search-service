@@ -3,6 +3,7 @@ package flight
 import (
 	"context"
 	"flight-search-service/internal/domain"
+	"flight-search-service/internal/helper"
 	"flight-search-service/internal/redis"
 	"flight-search-service/internal/service/scoring"
 	"fmt"
@@ -145,7 +146,13 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 
 	go func() {
 		defer wg.Done()
-		outboundResults, statsOut = s.fetchAll(ctx, req)
+		outboundReq := req
+		// remove price and duration filter
+		outboundReq.PriceMin = 0
+		outboundReq.PriceMax = 0
+		outboundReq.DurationMin = 0
+		outboundReq.DurationMax = 0
+		outboundResults, statsOut = s.fetchAll(ctx, outboundReq)
 	}()
 
 	go func() {
@@ -156,6 +163,14 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 		inboundReq.Destination = req.Origin
 		inboundReq.DepartureDate = req.ReturnDate // return date became departure date
 		inboundReq.ReturnDate = time.Time{}       // reset return date
+		// remove filter departure time if round trip
+		inboundReq.DepartureTimeMin = ""
+		inboundReq.DepartureTimeMax = ""
+		// remove price and duration filter
+		inboundReq.PriceMin = 0
+		inboundReq.PriceMax = 0
+		inboundReq.DurationMin = 0
+		inboundReq.DurationMax = 0
 		inboundResults, statsIn = s.fetchAll(ctx, inboundReq)
 	}()
 
@@ -252,8 +267,17 @@ func (s *FlightService) processRoundTripResults(
 	startTime time.Time,
 	cacheHit bool,
 ) SearchResponse {
-	s.applyRoundTripScoring(roundTrips)
-	trips := s.sortRoundTripResults(roundTrips, req)
+	trips := filterTrips(req, roundTrips)
+
+	if len(trips) == 0 {
+		return SearchResponse{
+			RoundTrips: []domain.RoundTrip{},
+			Meta:       s.buildMeta(len(trips), stats, startTime, cacheHit),
+		}
+	}
+
+	s.applyRoundTripScoring(trips)
+	trips = s.sortRoundTripResults(trips, req)
 
 	return SearchResponse{
 		RoundTrips: trips,
@@ -456,10 +480,18 @@ func (s *FlightService) AggregateMultiCity(ctx context.Context, segments []domai
 	results := make([][]domain.Flight, len(segments))
 	var wg sync.WaitGroup
 
+	mainRequest := segments[0] // use for filter later, all the segments filter should be same
 	for i, req := range segments {
 		wg.Add(1)
 		go func(idx int, r domain.SearchRequest) {
 			defer wg.Done()
+
+			// remove price and duration filter
+			r.PriceMin = 0
+			r.PriceMax = 0
+			r.DurationMin = 0
+			r.DurationMax = 0
+
 			flights, stats := s.fetchAll(ctx, r)
 			combinedStats.succeeded += stats.succeeded
 			combinedStats.failed += stats.failed
@@ -477,13 +509,14 @@ func (s *FlightService) AggregateMultiCity(ctx context.Context, segments []domai
 
 	// build the chains
 	trips := make([]domain.MultiCityTrip, 0)
-	s.buildChains(results, 0, []domain.Flight{}, &trips)
+	s.buildChains(mainRequest, results, 0, []domain.Flight{}, &trips)
+
 	meta := s.buildMeta(len(trips), combinedStats, start, false)
 
 	return trips, meta, nil
 }
 
-func (s *FlightService) buildChains(allSegments [][]domain.Flight, currentSeg int, path []domain.Flight, final *[]domain.MultiCityTrip) {
+func (s *FlightService) buildChains(req domain.SearchRequest, allSegments [][]domain.Flight, currentSeg int, path []domain.Flight, final *[]domain.MultiCityTrip) {
 	// if it's the last
 	if currentSeg == len(allSegments) {
 		trip := domain.MultiCityTrip{Segments: append([]domain.Flight{}, path...)}
@@ -492,7 +525,10 @@ func (s *FlightService) buildChains(allSegments [][]domain.Flight, currentSeg in
 			trip.TotalDurationMinutes += f.Duration.TotalMinutes
 			trip.CombinedScore += f.Score
 		}
-		*final = append(*final, trip)
+		valid := helper.IsValidTrip(req, trip)
+		if valid {
+			*final = append(*final, trip)
+		}
 		return
 	}
 
@@ -505,6 +541,25 @@ func (s *FlightService) buildChains(allSegments [][]domain.Flight, currentSeg in
 			}
 		}
 
-		s.buildChains(allSegments, currentSeg+1, append(path, flight), final)
+		s.buildChains(req, allSegments, currentSeg+1, append(path, flight), final)
 	}
+}
+
+func filterTrips[T domain.TripResult](
+	req domain.SearchRequest,
+	trips []T,
+) []T {
+	if len(trips) == 0 {
+		return []T{}
+	}
+
+	filtered := make([]T, 0)
+	for _, r := range trips {
+		valid := helper.IsValidTrip(req, r)
+		if valid {
+			filtered = append(filtered, r)
+		}
+	}
+
+	return filtered
 }

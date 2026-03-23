@@ -76,6 +76,20 @@
       "seats": 88,
       "cabin_class": "economy",
       "baggage_note": "Cabin baggage only, checked bags additional fee"
+    },
+    {
+      "flight_code": "QZ7350",
+      "airline": "AirAsia",
+      "from_airport": "KNO",
+      "to_airport": "CGK",
+      "depart_time": "2025-12-13T15:00:00+07:00",
+      "arrive_time": "2025-12-13T16:45:00+07:00",
+      "duration_hours": 1.45,
+      "direct_flight": true,
+      "price_idr": 1485000,
+      "seats": 88,
+      "cabin_class": "economy",
+      "baggage_note": "Cabin baggage only, checked bags additional fee"
     }
   ]
 }
