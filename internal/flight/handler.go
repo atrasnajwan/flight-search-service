@@ -28,14 +28,6 @@ type SearchCriteria struct {
 	Passengers    int    `json:"passengers"`
 	CabinClass    string `json:"cabin_class"`
 }
-type Metadata struct {
-	TotalResults      int  `json:"total_results"`
-	ProviderQueried   int  `json:"providers_queried"`
-	ProviderSucceeded int  `json:"providers_succeeded"`
-	ProviderFailed    int  `json:"providers_failed"`
-	SearchTime        int  `json:"search_time_ms"`
-	CacheHit          bool `json:"cache_hit"`
-}
 
 type ResultDTO struct {
 	Criteria SearchCriteria  `json:"search_criteria"`
@@ -169,7 +161,12 @@ func (h *FlightHandler) Search(c *gin.Context) {
 		DurationMax:      durationMax,
 	}
 
-	flights, meta := h.service.AggregateSearch(c.Request.Context(), domReq)
+	result, err := h.service.AggregateSearch(c.Request.Context(), domReq)
+	if err != nil {
+		log.Printf("failed get flights %v", err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to get flights"})
+		return
+	}
 	criteria := SearchCriteria{
 		Origin:        req.Origin,
 		Destination:   req.Destination,
@@ -180,7 +177,7 @@ func (h *FlightHandler) Search(c *gin.Context) {
 
 	c.JSON(http.StatusOK, &ResultDTO{
 		Criteria: criteria,
-		Metadata: meta,
-		Flights:  flights,
+		Metadata: result.Meta,
+		Flights:  result.Flights,
 	})
 }
