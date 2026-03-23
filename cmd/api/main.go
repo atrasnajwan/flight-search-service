@@ -4,6 +4,8 @@ import (
 	"context"
 	"flight-search-service/internal/domain"
 	"flight-search-service/internal/flight"
+	"flight-search-service/internal/provider/airasia"
+	"flight-search-service/internal/repository/airport"
 	"flight-search-service/internal/provider/garuda"
 	"fmt"
 	"log"
@@ -44,8 +46,15 @@ func main() {
 		c.Status(http.StatusOK)
 	})
 
+	airportInstance := airport.NewInstance()
+    err := airportInstance.LoadFromJSON("internal/repository/airport/airports.json")
+    if err != nil {
+        log.Fatalf("Failed to load airport mapping: %v", err)
+    }
+
 	providers := []domain.Provider{
 		garuda.NewGarudaProvider("internal/provider/garuda/mock-response.json", 50, 100), // delay 50-100ms
+		airasia.NewAirAsiaProvider("internal/provider/airasia/mock-response.json", airportInstance, 50, 150, 90), // delay 50-150ms, 90% success rate
 	}
 
 	flightService := flight.NewService(providers)
@@ -63,7 +72,7 @@ func main() {
 	go func() {
 		log.Printf("HTTP server listening on port %d\n", PORT)
 		err := server.ListenAndServe()
-		if err != nil && err != http.ErrServerClosed {	
+		if err != nil && err != http.ErrServerClosed {
 			log.Fatalf("HTTP server failed to start: %v\n", err)
 		}
 	}()
