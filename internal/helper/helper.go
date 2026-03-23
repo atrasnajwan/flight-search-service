@@ -141,7 +141,7 @@ func IsMatchFilter(req *domain.SearchRequest, flight *domain.Flight) bool {
 	if len(req.Airlines) > 0 {
 		found := false
 		for _, airline := range req.Airlines {
-			if strings.EqualFold(flight.Airline.Name, airline) {
+			if strings.EqualFold(flight.Airline.Code, airline) {
 				found = true
 				break
 			}
