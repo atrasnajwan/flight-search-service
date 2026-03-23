@@ -3,7 +3,9 @@ package flight
 import (
 	"context"
 	"flight-search-service/internal/domain"
+	"flight-search-service/internal/redis"
 	"flight-search-service/internal/service/scoring"
+	"fmt"
 	"log"
 	"math"
 	"sort"
@@ -15,10 +17,11 @@ import (
 
 type FlightService struct {
 	providers []domain.Provider
+	cache     *redis.Cache
 }
 
-func NewService(providers []domain.Provider) *FlightService {
-	return &FlightService{providers: providers}
+func NewService(providers []domain.Provider, cache *redis.Cache) *FlightService {
+	return &FlightService{providers: providers, cache: cache}
 }
 
 type SearchResponse struct {
@@ -41,18 +44,112 @@ type providerStats struct {
 	failed    int32
 }
 
+const (
+	CacheTTL       = 15 * time.Minute
+	CacheKeyPrefix = "flight_search:"
+)
+
+func (s *FlightService) generateCacheKey(req domain.SearchRequest) string {
+	var sb strings.Builder
+
+	sb.WriteString(CacheKeyPrefix)
+	sb.WriteString(strings.ToUpper(req.Origin))
+	sb.WriteString("-")
+	sb.WriteString(strings.ToUpper(req.Destination))
+	sb.WriteString(":")
+	sb.WriteString(req.DepartureDate.Format("20060102"))
+
+	if !req.ReturnDate.IsZero() {
+		sb.WriteString("_")
+		sb.WriteString(req.ReturnDate.Format("20060102"))
+		sb.WriteString(":rt")
+	} else {
+		sb.WriteString(":ow")
+	}
+
+	fmt.Fprintf(&sb, ":p%d:%s", req.Passengers, strings.ToLower(req.CabinClass))
+
+	// filters
+	if req.PriceMin > 0 {
+		fmt.Fprintf(&sb, ":pmin%.0f", req.PriceMin)
+	}
+	if req.PriceMax > 0 {
+		fmt.Fprintf(&sb, ":pmax%.0f", req.PriceMax)
+	}
+	if req.MaxStops > 0 {
+		fmt.Fprintf(&sb, ":s%d", req.MaxStops)
+	}
+	if req.DepartureTimeMin != "" || req.DepartureTimeMax != "" {
+		fmt.Fprintf(&sb, ":dt%s-%s", req.DepartureTimeMin, req.DepartureTimeMax)
+	}
+
+	if len(req.Airlines) > 0 {
+		sort.Strings(req.Airlines)
+		sb.WriteString(":air-")
+		sb.WriteString(strings.Join(req.Airlines, ","))
+	}
+
+	// sorts
+	if req.SortBy != "" {
+		fmt.Fprintf(
+			&sb, ":sort-%s-%s",
+			strings.ToLower(req.SortBy),
+			strings.ToLower(req.SortOrder),
+		)
+	}
+
+	return sb.String()
+}
+
 func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRequest) (SearchResponse, error) {
 	start := time.Now()
-	// TODO: implement cache
 	cacheHit := false
+	cacheKey := s.generateCacheKey(req)
 
 	// One way
 	if req.ReturnDate.IsZero() {
+		var cachedResponse SearchResponse
+		found, err := s.cache.Get(ctx, cacheKey, &cachedResponse)
+		if err != nil {
+			log.Printf("Error reading from cache: %v", err)
+		}
+		if found {
+			cacheHit = true
+			cachedResponse.Meta.SearchTime = getSearchDuration(start)
+			cachedResponse.Meta.CacheHit = true
+			if cachedResponse.Flights == nil {
+				cachedResponse.Flights = []domain.Flight{}
+			}
+			return cachedResponse, nil
+		}
+
 		outboundResults, statsOut := s.fetchAll(ctx, req)
-		return s.processOneWayResults(req, outboundResults, statsOut, start, cacheHit), nil
+		response := s.processOneWayResults(req, outboundResults, statsOut, start, cacheHit)
+
+		if err := s.cache.Set(ctx, cacheKey, response, CacheTTL); err != nil {
+			log.Printf("Error storing in cache: %v", err)
+		}
+
+		return response, nil
 	}
 
 	// Round trip
+	var cachedResponse SearchResponse
+
+	found, err := s.cache.Get(ctx, cacheKey, &cachedResponse)
+	if err != nil {
+		log.Printf("Error reading from cache: %v", err)
+	}
+	if found {
+		cacheHit = true
+		cachedResponse.Meta.SearchTime = getSearchDuration(start)
+		cachedResponse.Meta.CacheHit = true
+		if cachedResponse.Flights == nil {
+			cachedResponse.RoundTrips = []domain.RoundTrip{}
+		}
+		return cachedResponse, nil
+	}
+
 	var outboundResults, inboundResults []domain.Flight
 	var statsOut, statsIn *providerStats
 
@@ -85,7 +182,13 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 		failed:    max(statsOut.failed, statsIn.failed),
 	}
 
-	return s.processRoundTripResults(req, pairs, combinedStats, start, cacheHit), nil
+	response := s.processRoundTripResults(req, pairs, combinedStats, start, cacheHit)
+
+	if err := s.cache.Set(ctx, cacheKey, response, CacheTTL); err != nil {
+		log.Printf("Error storing in cache: %v", err)
+	}
+
+	return response, nil
 }
 
 func (s *FlightService) fetchAll(ctx context.Context, req domain.SearchRequest) ([]domain.Flight, *providerStats) {
@@ -120,9 +223,11 @@ func (s *FlightService) fetchAll(ctx context.Context, req domain.SearchRequest) 
 	}()
 
 	var all []domain.Flight
+
 	for flights := range resultChan {
 		all = append(all, flights...)
 	}
+
 	return all, stats
 }
 
@@ -189,7 +294,7 @@ func (s *FlightService) pairRoundTrips(out, in []domain.Flight) []domain.RoundTr
 }
 
 func (s *FlightService) sortResults(flights []domain.Flight, req domain.SearchRequest) []domain.Flight {
-	if len(flights) <= 0 {
+	if len(flights) == 0 {
 		return []domain.Flight{}
 	}
 
@@ -241,7 +346,7 @@ func (s *FlightService) sortResults(flights []domain.Flight, req domain.SearchRe
 }
 
 func (s *FlightService) sortRoundTripResults(roudtrips []domain.RoundTrip, req domain.SearchRequest) []domain.RoundTrip {
-	if len(roudtrips) <= 0 {
+	if len(roudtrips) == 0 {
 		return []domain.RoundTrip{}
 	}
 

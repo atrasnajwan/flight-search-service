@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"flight-search-service/internal/config"
 	"flight-search-service/internal/domain"
 	"flight-search-service/internal/flight"
 	"flight-search-service/internal/provider/airasia"
 	"flight-search-service/internal/provider/batik"
 	"flight-search-service/internal/provider/garuda"
 	"flight-search-service/internal/provider/lion"
+	"flight-search-service/internal/redis"
 	"flight-search-service/internal/repository/airport"
 	"flight-search-service/internal/service/limiter"
 	"fmt"
@@ -22,11 +24,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TODO: put it on config
-const PORT = 3000
-const ENV = "dev"
-
 func main() {
+	// Load configuration
+	config.LoadConfig()
+
 	// init gin router
 	router := gin.New()
 	router.Use(gin.Recovery()) // can recover from panics
@@ -48,6 +49,10 @@ func main() {
 		c.Status(http.StatusOK)
 	})
 
+	// redis
+	redisClient, _ := redis.NewRedisClient()
+	redisCache := redis.NewCache(redisClient)
+	
 	airportInstance := airport.NewInstance()
 	err := airportInstance.LoadFromJSON("internal/repository/airport/airports.json")
 	if err != nil {
@@ -71,20 +76,20 @@ func main() {
 		lionRated,
 	}
 
-	flightService := flight.NewService(providers)
+	flightService := flight.NewService(providers, redisCache)
 	flightHandler := flight.NewHandler(flightService)
 
 	// /search
 	router.POST("/search", flightHandler.Search)
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", PORT),
+		Addr:    fmt.Sprintf(":%s", config.AppConfig.ServerPort),
 		Handler: router.Handler(),
 	}
 
 	// Start HTTP server
 	go func() {
-		log.Printf("HTTP server listening on port %d\n", PORT)
+		log.Printf("HTTP server listening on port %s\n", config.AppConfig.ServerPort)
 		err := server.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
 			log.Fatalf("HTTP server failed to start: %v\n", err)
