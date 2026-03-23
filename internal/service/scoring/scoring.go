@@ -1,4 +1,4 @@
-package service
+package scoring
 
 import "flight-search-service/internal/domain"
 

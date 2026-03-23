@@ -3,7 +3,7 @@ package flight
 import (
 	"context"
 	"flight-search-service/internal/domain"
-	"flight-search-service/internal/service"
+	"flight-search-service/internal/service/scoring"
 	"log"
 	"math"
 	"sort"
@@ -54,17 +54,17 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 
 	// Round trip
 	var outboundResults, inboundResults []domain.Flight
-    var statsOut, statsIn *providerStats
-    
-    var wg sync.WaitGroup
-    wg.Add(2)
+	var statsOut, statsIn *providerStats
 
-	go func(){
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
 		defer wg.Done()
 		outboundResults, statsOut = s.fetchAll(ctx, req)
 	}()
-	
-	go func(){
+
+	go func() {
 		defer wg.Done()
 		inboundReq := domain.SearchRequest{
 			Origin:        req.Destination,
@@ -74,16 +74,16 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 		}
 		inboundResults, statsIn = s.fetchAll(ctx, inboundReq)
 	}()
-	
+
 	wg.Wait()
 
 	// Pair outbound and inboud
 	pairs := s.pairRoundTrips(outboundResults, inboundResults)
 
 	combinedStats := &providerStats{
-        succeeded: statsOut.succeeded + statsIn.succeeded,
-        failed:    statsOut.failed + statsIn.failed,
-    }
+		succeeded: max(statsOut.succeeded, statsIn.succeeded),
+		failed:    max(statsOut.failed, statsIn.failed),
+	}
 
 	return s.processRoundTripResults(req, pairs, combinedStats, start, cacheHit), nil
 }
@@ -326,7 +326,7 @@ func (s *FlightService) applyScoring(flights []domain.Flight) {
 	minP, maxP, minD, maxD := s.getGlobalMaxMin(flights)
 
 	for i := range flights {
-		flights[i].Score = service.CalculateBestValueScore(flights[i], minP, maxP, minD, maxD)
+		flights[i].Score = scoring.CalculateBestValueScore(flights[i], minP, maxP, minD, maxD)
 	}
 }
 
@@ -338,7 +338,7 @@ func (s *FlightService) applyRoundTripScoring(roundTrips []domain.RoundTrip) {
 	minP, maxP, minD, maxD := s.getRoundGlobalMaxMin(roundTrips)
 
 	for i := range roundTrips {
-		roundTrips[i].CombinedScore = service.CalculateRoundTripBestValueScore(roundTrips[i], minP, maxP, minD, maxD)
+		roundTrips[i].CombinedScore = scoring.CalculateRoundTripBestValueScore(roundTrips[i], minP, maxP, minD, maxD)
 	}
 }
 

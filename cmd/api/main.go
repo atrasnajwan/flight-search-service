@@ -5,10 +5,11 @@ import (
 	"flight-search-service/internal/domain"
 	"flight-search-service/internal/flight"
 	"flight-search-service/internal/provider/airasia"
-	"flight-search-service/internal/repository/airport"
 	"flight-search-service/internal/provider/batik"
 	"flight-search-service/internal/provider/garuda"
 	"flight-search-service/internal/provider/lion"
+	"flight-search-service/internal/repository/airport"
+	"flight-search-service/internal/service/limiter"
 	"fmt"
 	"log"
 	"net/http"
@@ -48,16 +49,26 @@ func main() {
 	})
 
 	airportInstance := airport.NewInstance()
-    err := airportInstance.LoadFromJSON("internal/repository/airport/airports.json")
-    if err != nil {
-        log.Fatalf("Failed to load airport mapping: %v", err)
-    }
+	err := airportInstance.LoadFromJSON("internal/repository/airport/airports.json")
+	if err != nil {
+		log.Fatalf("Failed to load airport mapping: %v", err)
+	}
+
+	garudaProvider := garuda.NewGarudaProvider("internal/provider/garuda/mock-response.json", 50, 100)                          // delay 50-100ms
+	airasiaProvider := airasia.NewAirAsiaProvider("internal/provider/airasia/mock-response.json", airportInstance, 50, 150, 90) // delay 50-150ms, 90% success rate
+	batikProvider := batik.NewBatikProvider("internal/provider/batik/mock-response.json", airportInstance, 200, 400)            // delay 200-400ms
+	lionProvider := lion.NewLionProvider("internal/provider/lion/mock-response.json", 100, 200)                                 // delay 100-200ms
+
+	garudaRated := limiter.NewRatedProvider(garudaProvider, 5, 10)
+	airasiaRated := limiter.NewRatedProvider(airasiaProvider, 5, 10)
+	batikRated := limiter.NewRatedProvider(batikProvider, 5, 10)
+	lionRated := limiter.NewRatedProvider(lionProvider, 5, 10)
 
 	providers := []domain.Provider{
-		garuda.NewGarudaProvider("internal/provider/garuda/mock-response.json", 50, 100), // delay 50-100ms
-		airasia.NewAirAsiaProvider("internal/provider/airasia/mock-response.json", airportInstance, 50, 150, 90), // delay 50-150ms, 90% success rate
-		batik.NewBatikProvider("internal/provider/batik/mock-response.json", airportInstance, 200, 400),  // delay 200-400ms
-		lion.NewLionProvider("internal/provider/lion/mock-response.json", 100, 200),  // delay 100-200ms
+		garudaRated,
+		airasiaRated,
+		batikRated,
+		lionRated,
 	}
 
 	flightService := flight.NewService(providers)
