@@ -3,7 +3,9 @@ package flight
 import (
 	"context"
 	"flight-search-service/internal/domain"
+	"flight-search-service/internal/service"
 	"log"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -53,20 +55,21 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 				allFlights = append(allFlights, flights...)
 			}
 		case <-ctx.Done():
-			flights := s.sortResults(allFlights, req)
-			meta := Metadata{
-				TotalResults:      len(flights),
-				ProviderQueried:   len(s.providers),
-				ProviderSucceeded: providerSucceeded,
-				ProviderFailed:    providerFailed,
-				SearchTime:        getSearchDuration(start),
-				CacheHit:          cacheHit,
-			}
-
-			return flights, meta
+			return s.processResults(req, allFlights, providerSucceeded, providerFailed, start, cacheHit)
 		}
 	}
 
+	return s.processResults(req, allFlights, providerSucceeded, providerFailed, start, cacheHit)
+}
+
+func (s *FlightService) processResults(
+	req domain.SearchRequest,
+	allFlights []domain.Flight,
+	providerSucceeded, providerFailed int,
+	startTime time.Time,
+	cacheHit bool,
+) ([]domain.Flight, Metadata) {
+	s.applyScoring(allFlights)
 	flights := s.sortResults(allFlights, req)
 
 	meta := Metadata{
@@ -74,7 +77,7 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 		ProviderQueried:   len(s.providers),
 		ProviderSucceeded: providerSucceeded,
 		ProviderFailed:    providerFailed,
-		SearchTime:        getSearchDuration(start),
+		SearchTime:        getSearchDuration(startTime),
 		CacheHit:          cacheHit,
 	}
 
@@ -121,15 +124,36 @@ func (s *FlightService) sortResults(flights []domain.Flight, req domain.SearchRe
 			return flights[a].Arrival.DateTime.Before(flights[b].Arrival.DateTime)
 		})
 	default:
+		// sort by scoring
 		sort.Slice(flights, func(a, b int) bool {
 			if order == "desc" {
-				return flights[a].Price.Amount > flights[b].Price.Amount
+				return flights[a].Score > flights[b].Score
 			}
-			return flights[a].Price.Amount < flights[b].Price.Amount
+			return flights[a].Score < flights[b].Score
 		})
 	}
 
 	return flights
+}
+
+func (s *FlightService) getGlobalMaxMin(flights []domain.Flight) (minP, maxP float64, minD, maxD int) {
+	minP, minD = math.MaxFloat64, math.MaxInt
+	
+	for _, f := range flights {
+		if f.Price.Amount < minP { minP = f.Price.Amount }
+		if f.Price.Amount > maxP { maxP = f.Price.Amount }
+		if f.Duration.TotalMinutes < minD { minD = f.Duration.TotalMinutes }
+		if f.Duration.TotalMinutes > maxD { maxD = f.Duration.TotalMinutes }
+	}
+	return minP, maxP, minD, maxD
+}
+
+func (s *FlightService) applyScoring(flights []domain.Flight) {
+	minP, maxP, minD, maxD := s.getGlobalMaxMin(flights)
+
+	for i := range flights {
+		flights[i].Score = service.CalculateBestValueScore(flights[i], minP, maxP, minD, maxD)
+	}
 }
 
 func getSearchDuration(start time.Time) int {
