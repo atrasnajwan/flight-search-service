@@ -181,7 +181,6 @@ func (h *FlightHandler) Search(c *gin.Context) {
 	}
 
 	filters := parseQueryFilters(c)
-	returnDate := req.ReturnDate
 	domReq, err := buildDomainRequest(
 		req.Origin,
 		req.Destination,

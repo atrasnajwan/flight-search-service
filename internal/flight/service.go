@@ -106,23 +106,26 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 	cacheHit := false
 	cacheKey := s.generateCacheKey(req)
 
+	var cachedResponse SearchResponse
+	found, err := s.cache.Get(ctx, cacheKey, &cachedResponse)
+	if err != nil {
+		log.Printf("Error reading from cache: %v", err)
+	}
+	if found {
+		cacheHit = true
+		cachedResponse.Meta.SearchTime = getSearchDuration(start)
+		cachedResponse.Meta.CacheHit = true
+		if cachedResponse.Flights == nil {
+			cachedResponse.Flights = []domain.Flight{}
+		}
+		if cachedResponse.RoundTrips == nil {
+			cachedResponse.RoundTrips = []domain.RoundTrip{}
+		}
+		return cachedResponse, nil
+	}
+
 	// One way
 	if req.ReturnDate.IsZero() {
-		var cachedResponse SearchResponse
-		found, err := s.cache.Get(ctx, cacheKey, &cachedResponse)
-		if err != nil {
-			log.Printf("Error reading from cache: %v", err)
-		}
-		if found {
-			cacheHit = true
-			cachedResponse.Meta.SearchTime = getSearchDuration(start)
-			cachedResponse.Meta.CacheHit = true
-			if cachedResponse.Flights == nil {
-				cachedResponse.Flights = []domain.Flight{}
-			}
-			return cachedResponse, nil
-		}
-
 		outboundResults, statsOut := s.fetchAll(ctx, req)
 		response := s.processOneWayResults(req, outboundResults, statsOut, start, cacheHit)
 
@@ -134,22 +137,6 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 	}
 
 	// Round trip
-	var cachedResponse SearchResponse
-
-	found, err := s.cache.Get(ctx, cacheKey, &cachedResponse)
-	if err != nil {
-		log.Printf("Error reading from cache: %v", err)
-	}
-	if found {
-		cacheHit = true
-		cachedResponse.Meta.SearchTime = getSearchDuration(start)
-		cachedResponse.Meta.CacheHit = true
-		if cachedResponse.Flights == nil {
-			cachedResponse.RoundTrips = []domain.RoundTrip{}
-		}
-		return cachedResponse, nil
-	}
-
 	var outboundResults, inboundResults []domain.Flight
 	var statsOut, statsIn *providerStats
 
@@ -168,7 +155,7 @@ func (s *FlightService) AggregateSearch(ctx context.Context, req domain.SearchRe
 		inboundReq.Origin = req.Destination
 		inboundReq.Destination = req.Origin
 		inboundReq.DepartureDate = req.ReturnDate // return date became departure date
-		inboundReq.ReturnDate = time.Time{} // reset return date
+		inboundReq.ReturnDate = time.Time{}       // reset return date
 		inboundResults, statsIn = s.fetchAll(ctx, inboundReq)
 	}()
 
