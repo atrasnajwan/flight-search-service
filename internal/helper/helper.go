@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // get flight_id {flightNumber}_{airline}
@@ -95,6 +96,19 @@ func parseTime(timeStr string) (int, int, error) {
 	return h, m, err
 }
 
+// capitalize first letter on string
+func CapitalizeFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	// Convert string to a slice of runes
+	runes := []rune(s)
+	// Capitalize the first rune
+	runes[0] = unicode.ToUpper(runes[0])
+
+	return string(runes)
+}
+
 // simulate delay
 func SimulateDelay(ctx context.Context, minDelay, maxDelay int) error {
 	delay := time.Duration(minDelay+rand.Intn(maxDelay-minDelay)) * time.Millisecond
@@ -165,5 +179,5 @@ func IsMatchFilter(req *domain.SearchRequest, flight *domain.Flight) bool {
 			}
 		}
 	}
-    return true
+	return true
 }

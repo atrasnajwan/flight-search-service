@@ -4,6 +4,7 @@ import (
 	"flight-search-service/internal/domain"
 	"flight-search-service/internal/helper"
 	"flight-search-service/internal/repository/airport"
+	"strings"
 	"time"
 )
 
@@ -69,7 +70,23 @@ func NormalizedResponse(airportInstance *airport.Airport, raw *RawAirAsiaFlight,
 		},
 		AvailableSeats: raw.Seats,
 		CabinClass:     raw.CabinClass,
-		Aircraft:       nil,                            
+		Aircraft:       nil,
 		Amenities:      helper.MapAmenities([]string{}), // not provided
+		Baggage:        parseBaggage(raw.BaggageNote),
+	}
+}
+
+// format: carry_on, checked
+func parseBaggage(note string) domain.Baggage {
+	parts := strings.Split(note, ",")
+	carryOn := strings.TrimSpace(parts[0])
+	checked := "Additional fee"
+	if len(parts) > 1 {
+		checked = strings.TrimSpace(strings.Replace(parts[1], "checked bags ", "", 1))
+		checked = helper.CapitalizeFirst(checked)
+	}
+	return domain.Baggage{
+		CarryOn: carryOn,
+		Checked: checked,
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"flight-search-service/internal/domain"
 	"flight-search-service/internal/helper"
 	"flight-search-service/internal/repository/airport"
+	"strings"
 	"time"
 )
 
@@ -33,7 +34,7 @@ type RawBatikFlight struct {
 	Connections       []RawBatikConnection `json:"connections,omitempty"`
 	Fare              RawBatikFare         `json:"fare"`
 	SeatsAvailable    int                  `json:"seatsAvailable"`
-	AircraftModel     *string               `json:"aircraftModel"`
+	AircraftModel     *string              `json:"aircraftModel"`
 	BaggageInfo       string               `json:"baggageInfo"`
 	OnboardServices   []string             `json:"onboardServices"`
 }
@@ -76,11 +77,25 @@ func NormalizedResponse(airportInstance *airport.Airport, raw *RawBatikFlight, d
 		CabinClass:     GetCabinClass(raw.Fare.Class),
 		Aircraft:       raw.AircraftModel,
 		Amenities:      helper.MapAmenities(raw.OnboardServices),
+		Baggage:        parseBaggage(raw.BaggageInfo),
+	}
+}
+
+func parseBaggage(info string) domain.Baggage {
+	// Assuming format: "7kg cabin, 20kg checked"
+	parts := strings.Split(info, ",")
+	carryOn := strings.TrimSpace(parts[0])
+	checked := strings.TrimSpace(parts[1])
+	checked = strings.TrimSpace(strings.Replace(checked, "checked", "", 1))
+	
+	return domain.Baggage{
+		CarryOn: carryOn,
+		Checked: checked,
 	}
 }
 
 func GetCabinClass(class string) string {
-	switch(class) {
+	switch class {
 	case "Y":
 		return "economy"
 	default:

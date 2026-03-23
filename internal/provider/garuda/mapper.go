@@ -3,6 +3,7 @@ package garuda
 import (
 	"flight-search-service/internal/domain"
 	"flight-search-service/internal/helper"
+	"fmt"
 	"time"
 )
 
@@ -42,7 +43,7 @@ type RawGarudaFlight struct {
 	Arrival         RawFlightPoint     `json:"arrival"`
 	DurationMinutes int                `json:"duration_minutes"`
 	Stops           int                `json:"stops"`
-	Aircraft        *string             `json:"aircraft"`
+	Aircraft        *string            `json:"aircraft"`
 	Price           RawPrice           `json:"price"`
 	AvailableSeats  int                `json:"available_seats"`
 	FareClass       string             `json:"fare_class"`
@@ -58,35 +59,52 @@ type RawGarudaResponse struct {
 
 func NormalizedResponse(raw *RawGarudaFlight, departureTime, arrivalTime time.Time, duration time.Duration) domain.Flight {
 	return domain.Flight{
-			ID:           helper.GetFlightID(raw.ID, raw.Airline),
-			Provider:     raw.Airline,
-			Airline:      domain.Airline{Name: raw.Airline, Code: raw.AirlineCode},
-			FlightNumber: raw.ID,
-			Departure: domain.FlightPoint{
-				Airport:   raw.Departure.Airport,
-				City:      raw.Departure.City,
-				DateTime:  departureTime,
-				Timestamp: departureTime.Unix(),
-			},
-			Arrival: domain.FlightPoint{
-				Airport:   raw.Arrival.Airport,
-				City:      raw.Arrival.City,
-				DateTime:  arrivalTime,
-				Timestamp: arrivalTime.Unix(),
-			},
-			Duration: domain.Duration{
-				TotalMinutes: int(duration.Minutes()),
-				Formatted:    helper.GetFormattedDuration(duration),
-			},
-			Stops: raw.Stops,
-			Price: domain.Price{
-				Amount:    raw.Price.Amount,
-				Currency:  raw.Price.Currency,
-				Formatted: helper.FormatIDR(raw.Price.Amount),
-			},
-			AvailableSeats: raw.AvailableSeats,
-			CabinClass:     raw.FareClass,
-			Aircraft:       raw.Aircraft,
-			Amenities:      helper.MapAmenities(raw.Amenities),
-		}
+		ID:           helper.GetFlightID(raw.ID, raw.Airline),
+		Provider:     raw.Airline,
+		Airline:      domain.Airline{Name: raw.Airline, Code: raw.AirlineCode},
+		FlightNumber: raw.ID,
+		Departure: domain.FlightPoint{
+			Airport:   raw.Departure.Airport,
+			City:      raw.Departure.City,
+			DateTime:  departureTime,
+			Timestamp: departureTime.Unix(),
+		},
+		Arrival: domain.FlightPoint{
+			Airport:   raw.Arrival.Airport,
+			City:      raw.Arrival.City,
+			DateTime:  arrivalTime,
+			Timestamp: arrivalTime.Unix(),
+		},
+		Duration: domain.Duration{
+			TotalMinutes: int(duration.Minutes()),
+			Formatted:    helper.GetFormattedDuration(duration),
+		},
+		Stops: raw.Stops,
+		Price: domain.Price{
+			Amount:    raw.Price.Amount,
+			Currency:  raw.Price.Currency,
+			Formatted: helper.FormatIDR(raw.Price.Amount),
+		},
+		AvailableSeats: raw.AvailableSeats,
+		CabinClass:     raw.FareClass,
+		Aircraft:       raw.Aircraft,
+		Amenities:      helper.MapAmenities(raw.Amenities),
+		Baggage:        parseBaggage(raw.Baggage),
+	}
+}
+
+// assuming number value is bags
+func parseBaggage(baggage RawBaggage) domain.Baggage {
+	carryOn := fmt.Sprintf("%d bag", baggage.CarryOn)
+	if baggage.CarryOn != 1 {
+		carryOn += "s"
+	}
+	checked := fmt.Sprintf("%d bag", baggage.Checked)
+	if baggage.Checked != 1 {
+		checked += "s"
+	}
+	return domain.Baggage{
+		CarryOn: carryOn,
+		Checked: checked,
+	}
 }

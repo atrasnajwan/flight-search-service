@@ -14,8 +14,14 @@ type Flight struct {
 	Price          Price       `json:"price"`
 	AvailableSeats int         `json:"available_seats"`
 	CabinClass     string      `json:"cabin_class"`
-	Aircraft       *string      `json:"aircraft"`
+	Aircraft       *string     `json:"aircraft"`
 	Amenities      []Amenity   `json:"amenities"`
+	Baggage        Baggage     `json:"baggage"`
+}
+
+type Baggage struct {
+	CarryOn string `json:"carry_on"`
+	Checked string `json:"checked"`
 }
 
 type Price struct {

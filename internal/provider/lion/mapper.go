@@ -58,7 +58,7 @@ type RawLionFlight struct {
 	Layovers   []RawLionLayover `json:"layovers,omitempty"`
 	Pricing    RawLionPricing   `json:"pricing"`
 	SeatsLeft  int              `json:"seats_left"`
-	PlaneType  *string           `json:"plane_type"`
+	PlaneType  *string          `json:"plane_type"`
 	Services   RawLionServices  `json:"services"`
 }
 
@@ -111,5 +111,13 @@ func NormalizedResponse(raw *RawLionFlight, departureTime, arrivalTime time.Time
 		CabinClass:     strings.ToLower(raw.Pricing.FareType),
 		Aircraft:       raw.PlaneType,
 		Amenities:      helper.MapAmenities(amenities),
+		Baggage:        parseBaggage(raw.Services.BaggageAllowance),
+	}
+}
+
+func parseBaggage(allowance map[string]string) domain.Baggage {
+	return domain.Baggage{
+		CarryOn: allowance["cabin"],
+		Checked: allowance["hold"],
 	}
 }
