@@ -37,7 +37,7 @@ func main() {
 	}))
 
 	corsConfig := cors.Config{
-		AllowMethods:    []string{"GET", "OPTIONS"},
+		AllowMethods:    []string{"GET", "POST", "OPTIONS"},
 		AllowHeaders:    []string{"Origin", "Content-Type"},
 		ExposeHeaders:   []string{"Content-Length"},
 		AllowAllOrigins: true, // change on production

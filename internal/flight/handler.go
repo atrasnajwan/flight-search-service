@@ -43,8 +43,121 @@ type SearchRequestBody struct {
 	ReturnDate    string `json:"returnDate"`
 	Passengers    int    `json:"passengers" binding:"required,min=1"`
 	CabinClass    string `json:"cabinClass"`
-	SortBy        string `json:"sortBy"`
-	SortOrder     string `json:"sortOrder"`
+}
+
+type queryFilters struct {
+	priceMin, priceMax                 float64
+	maxStops, durationMin, durationMax int
+	airlines                           []string
+	departureTimeMin, departureTimeMax string
+	arrivalTimeMin, arrivalTimeMax     string
+}
+
+func parseQueryFilters(c *gin.Context) queryFilters {
+	var filters queryFilters
+
+	if q := c.Query("priceMin"); q != "" {
+		if v, err := strconv.ParseFloat(q, 64); err == nil {
+			filters.priceMin = v
+		}
+	}
+	if q := c.Query("priceMax"); q != "" {
+		if v, err := strconv.ParseFloat(q, 64); err == nil {
+			filters.priceMax = v
+		}
+	}
+	if q := c.Query("maxStops"); q != "" {
+		if v, err := strconv.Atoi(q); err == nil {
+			filters.maxStops = v
+		}
+	}
+	if q := c.Query("durationMin"); q != "" {
+		if v, err := strconv.Atoi(q); err == nil {
+			filters.durationMin = v
+		}
+	}
+	if q := c.Query("durationMax"); q != "" {
+		if v, err := strconv.Atoi(q); err == nil {
+			filters.durationMax = v
+		}
+	}
+	if q := c.Query("airlines"); q != "" {
+		filters.airlines = strings.Split(q, ",")
+		for i, a := range filters.airlines {
+			filters.airlines[i] = strings.TrimSpace(a)
+		}
+	}
+
+	filters.departureTimeMin = c.Query("departureTimeMin")
+	filters.departureTimeMax = c.Query("departureTimeMax")
+	filters.arrivalTimeMin = c.Query("arrivalTimeMin")
+	filters.arrivalTimeMax = c.Query("arrivalTimeMax")
+
+	return filters
+}
+
+func buildDomainRequest(
+	origin string,
+	destination string,
+	departureDate string,
+	returnDate *string,
+	passengers int,
+	cabinClass string,
+	sortBy string,
+	sortOrder string,
+	filters queryFilters,
+) (domain.SearchRequest, error) {
+	if origin == destination {
+		return domain.SearchRequest{}, errBadRequest{"origin and destination cannot be the same"}
+	}
+	if passengers <= 0 {
+		return domain.SearchRequest{}, errBadRequest{"passengers must be greater than 0"}
+	}
+
+	depDate, err := time.Parse("2006-01-02", departureDate)
+	if err != nil {
+		return domain.SearchRequest{}, errBadRequest{"failed to parse departure date"}
+	}
+
+	var retDate time.Time
+	if returnDate != nil && *returnDate != "" {
+		retDate, err = time.Parse("2006-01-02", *returnDate)
+		if err != nil {
+			return domain.SearchRequest{}, errBadRequest{"failed to parse return date"}
+		}
+		if !retDate.After(depDate) {
+			return domain.SearchRequest{}, errBadRequest{"return date must be after departure date"}
+		}
+	}
+
+	return domain.SearchRequest{
+		Origin:           origin,
+		Destination:      destination,
+		DepartureDate:    depDate,
+		ReturnDate:       retDate,
+		Passengers:       passengers,
+		CabinClass:       cabinClass,
+		SortBy:           sortBy,
+		SortOrder:        sortOrder,
+		PriceMin:         filters.priceMin,
+		PriceMax:         filters.priceMax,
+		MaxStops:         filters.maxStops,
+		DepartureTimeMin: filters.departureTimeMin,
+		DepartureTimeMax: filters.departureTimeMax,
+		ArrivalTimeMin:   filters.arrivalTimeMin,
+		ArrivalTimeMax:   filters.arrivalTimeMax,
+		Airlines:         filters.airlines,
+		DurationMin:      filters.durationMin,
+		DurationMax:      filters.durationMax,
+	}, nil
+}
+
+type errBadRequest struct {
+	msg string
+}
+
+func (e errBadRequest) Error() string {
+	return e.msg
 }
 
 func (h *FlightHandler) Search(c *gin.Context) {
@@ -56,110 +169,32 @@ func (h *FlightHandler) Search(c *gin.Context) {
 		return
 	}
 
-	depDate, err := time.Parse("2006-01-02", req.DepartureDate)
-	if err != nil {
-		log.Printf("failed to parse departure date %v", err)
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "failed to parse departure date"})
-		return
-	}
-
-	var retDate time.Time
-	if req.ReturnDate != "" {
-		retDate, err = time.Parse("2006-01-02", req.ReturnDate)
-		if err != nil {
-			log.Printf("failed to parse return date %v", err)
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "failed to parse return date"})
-			return
-		}
-	}
-
-	if req.Origin == req.Destination {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "origin and destination cannot be the same"})
-		return
-	}
-
-	if req.Passengers <= 0 {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "passengers must be greater than 0"})
-		return
-	}
-
-	if req.ReturnDate != "" && !retDate.After(depDate) {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "return date must be after departure date"})
-		return
-	}
-
-	sortBy := req.SortBy
+	sortBy := ""
 	if q := c.Query("sortBy"); q != "" {
 		sortBy = q
 	}
 
-	sortOrder := req.SortOrder
+	sortOrder := ""
 	if q := c.Query("sortOrder"); q != "" {
 		sortOrder = q
 	}
 
-	// Get filter params from URL query
-	var priceMin, priceMax float64
-	var maxStops int
-	var durationMin, durationMax int
-	var airlines []string
-	var departureTimeMin, departureTimeMax, arrivalTimeMin, arrivalTimeMax string
-
-	if q := c.Query("priceMin"); q != "" {
-		if v, err := strconv.ParseFloat(q, 64); err == nil {
-			priceMin = v
-		}
-	}
-	if q := c.Query("priceMax"); q != "" {
-		if v, err := strconv.ParseFloat(q, 64); err == nil {
-			priceMax = v
-		}
-	}
-	if q := c.Query("maxStops"); q != "" {
-		if v, err := strconv.Atoi(q); err == nil {
-			maxStops = v
-		}
-	}
-	if q := c.Query("durationMin"); q != "" {
-		if v, err := strconv.Atoi(q); err == nil {
-			durationMin = v
-		}
-	}
-	if q := c.Query("durationMax"); q != "" {
-		if v, err := strconv.Atoi(q); err == nil {
-			durationMax = v
-		}
-	}
-	if q := c.Query("airlines"); q != "" {
-		airlines = strings.Split(q, ",")
-		for i, a := range airlines {
-			airlines[i] = strings.TrimSpace(a)
-		}
-	}
-	departureTimeMin = c.Query("departureTimeMin")
-	departureTimeMax = c.Query("departureTimeMax")
-	arrivalTimeMin = c.Query("arrivalTimeMin")
-	arrivalTimeMax = c.Query("arrivalTimeMax")
-
-	domReq := domain.SearchRequest{
-		Origin:           req.Origin,
-		Destination:      req.Destination,
-		DepartureDate:    depDate,
-		ReturnDate:       retDate,
-		Passengers:       req.Passengers,
-		CabinClass:       req.CabinClass,
-		SortBy:           sortBy,
-		SortOrder:        sortOrder,
-		PriceMin:         priceMin,
-		PriceMax:         priceMax,
-		MaxStops:         maxStops,
-		DepartureTimeMin: departureTimeMin,
-		DepartureTimeMax: departureTimeMax,
-		ArrivalTimeMin:   arrivalTimeMin,
-		ArrivalTimeMax:   arrivalTimeMax,
-		Airlines:         airlines,
-		DurationMin:      durationMin,
-		DurationMax:      durationMax,
+	filters := parseQueryFilters(c)
+	returnDate := req.ReturnDate
+	domReq, err := buildDomainRequest(
+		req.Origin,
+		req.Destination,
+		req.DepartureDate,
+		&returnDate,
+		req.Passengers,
+		req.CabinClass,
+		sortBy,
+		sortOrder,
+		filters,
+	)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	result, err := h.service.AggregateSearch(c.Request.Context(), domReq)
