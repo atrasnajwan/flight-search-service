@@ -42,7 +42,7 @@ type RawGarudaFlight struct {
 	Arrival         RawFlightPoint     `json:"arrival"`
 	DurationMinutes int                `json:"duration_minutes"`
 	Stops           int                `json:"stops"`
-	Aircraft        string             `json:"aircraft"`
+	Aircraft        *string             `json:"aircraft"`
 	Price           RawPrice           `json:"price"`
 	AvailableSeats  int                `json:"available_seats"`
 	FareClass       string             `json:"fare_class"`

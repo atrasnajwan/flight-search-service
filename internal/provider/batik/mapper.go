@@ -33,7 +33,7 @@ type RawBatikFlight struct {
 	Connections       []RawBatikConnection `json:"connections,omitempty"`
 	Fare              RawBatikFare         `json:"fare"`
 	SeatsAvailable    int                  `json:"seatsAvailable"`
-	AircraftModel     string               `json:"aircraftModel"`
+	AircraftModel     *string               `json:"aircraftModel"`
 	BaggageInfo       string               `json:"baggageInfo"`
 	OnboardServices   []string             `json:"onboardServices"`
 }

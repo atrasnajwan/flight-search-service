@@ -69,7 +69,7 @@ func NormalizedResponse(airportInstance *airport.Airport, raw *RawAirAsiaFlight,
 		},
 		AvailableSeats: raw.Seats,
 		CabinClass:     raw.CabinClass,
-		Aircraft:       "Unknown",                            
+		Aircraft:       nil,                            
 		Amenities:      helper.MapAmenities([]string{}), // not provided
 	}
 }

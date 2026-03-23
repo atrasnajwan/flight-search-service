@@ -58,7 +58,7 @@ type RawLionFlight struct {
 	Layovers   []RawLionLayover `json:"layovers,omitempty"`
 	Pricing    RawLionPricing   `json:"pricing"`
 	SeatsLeft  int              `json:"seats_left"`
-	PlaneType  string           `json:"plane_type"`
+	PlaneType  *string           `json:"plane_type"`
 	Services   RawLionServices  `json:"services"`
 }
 
